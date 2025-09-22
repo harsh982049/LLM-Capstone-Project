@@ -7,6 +7,8 @@ VECTOR_FAISS_DIR = Path(r"C:\\Users\\harsh\\OneDrive\\Desktop\\LLM Capstone\\Vec
 # === Embedding model (free) ===
 EMBEDDING_MODEL  = "BAAI/bge-small-en-v1.5"
 
+TIMEZONE = "Asia/Kolkata"
+
 # === Retrieval defaults ===
 TOP_K            = 10
 
