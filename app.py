@@ -1,16 +1,19 @@
+import json
 from graph.pipeline import app
 
-state = {"query": "Should i buy Infosys stocks?"}
+# The initial state with the user's query
+state = {"query": "Should I buy Infosys stock today?"}
+
+# Invoke the entire pipeline
 final_state = app.invoke(state)
 
-print("Index backend:", final_state["data_bundle"]["diagnostics"]["index_backend"])
-print("\nTop evidence:")
-for e in final_state["report"]["evidence_top3"]:
-    print(f"- {e['title']}  |  {e['url']}")
-
-print("\nAnalysis symbols:")
-for sym, vals in final_state["report"]["analysis"]["symbols"].items():
-    print(sym, "→", vals)
-
-# Full structured report dict:
-final_state["report"]
+# --- This is the correct way to print the final output ---
+# The clean, final data is stored in the 'report' key.
+print("\n--- 🚀 FINAL REPORT 🚀 ---\n")
+if 'report' in final_state:
+    # Use json.dumps for pretty-printing the final dictionary
+    print(json.dumps(final_state['report'], indent=2))
+else:
+    print("Error: 'report' key not found in the final state.")
+    print("\n--- Full Final State ---")
+    print(final_state)

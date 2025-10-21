@@ -10,6 +10,18 @@ from pathlib import Path
 from config import VECTOR_FAISS_DIR, EMBEDDING_MODEL, TOP_K, TIMEZONE
 from agents.index_loader import RetrieverIndex
 
+# top of file
+COMPANY_TO_TICKER = {
+    "infosys": "INFY.NS", "tcs": "TCS.NS", "reliance": "RELIANCE.NS",
+    "icici bank": "ICICIBANK.NS", "hdfc bank": "HDFCBANK.NS",
+}
+
+def _resolve_query_symbols(q: str) -> List[str]:
+    ql = q.lower()
+    hits = [tkr for name, tkr in COMPANY_TO_TICKER.items() if name in ql]
+    return list(dict.fromkeys(hits))  # unique, keep order
+
+
 tok_cache = None
 def _tok():
     global tok_cache
@@ -33,6 +45,19 @@ def _latest_summary(df: pd.DataFrame) -> dict:
     pct = float((last["close"] - prev["close"]) / prev["close"]) if prev["close"] else 0.0
     return {"as_of": last["date"].isoformat(), "latest_close": float(last["close"]), "pct_change_1d": pct, "realized_vol_10d": vol10, "vendor": "yfinance"}
 
+def _dedup_evidence(rows, per_domain_cap=2):
+    seen_urls, per_domain = set(), {}
+    deduped = []
+    for e in rows:
+        url = (e.get("url") or "").split("?")[0].rstrip("/")
+        dom = (e.get("domain") or "").lower()
+        if not url or url in seen_urls: continue
+        if per_domain.get(dom, 0) >= per_domain_cap: continue
+        seen_urls.add(url); per_domain[dom] = per_domain.get(dom, 0) + 1
+        deduped.append(e)
+    return deduped
+
+
 class DataAgent:
     def __init__(self):
         self.index = RetrieverIndex(VECTOR_FAISS_DIR, EMBEDDING_MODEL)
@@ -40,7 +65,7 @@ class DataAgent:
     def retrieve(self, query: str, k: int) -> List[Dict[str, Any]]:
         return self.index.search(query, k=k)
 
-    def fetch_prices(self, symbols: List[str], period="1mo", interval="1d") -> Dict[str, List[Dict[str, Any]]]:
+    def fetch_prices(self, symbols: List[str], period="3mo", interval="1d") -> Dict[str, List[Dict[str, Any]]]:
         out: Dict[str, List[Dict[str, Any]]] = {}
         for s in symbols:
             try:
@@ -84,7 +109,8 @@ class DataAgent:
 
     def run_pipeline(self, user_query: str, tickers: List[str], rss_queries: List[str], k: int = TOP_K, limit_tokens_for_evidence: int = 256) -> Dict[str, Any]:
         t0 = time.time()
-        ev_raw = self.retrieve(user_query, k=k)
+        ev_raw = self.retrieve(user_query, k)      # pull a few extra
+        ev_raw = _dedup_evidence(ev_raw)[:k]           # then cap to K
         evidence = [{
             "id": int(e.get("id", e.get("chunk", 0))),
             "external_id": f"{e.get('url','')}|{e.get('chunk',0)}",
@@ -97,13 +123,17 @@ class DataAgent:
             "text": _trim_text(e.get("text",""), limit_tokens_for_evidence)
         } for e in ev_raw]
 
+        resolved = _resolve_query_symbols(user_query)
+        bench = ["^NSEI"]  # NIFTY 50 on Yahoo
+        tickers = list(dict.fromkeys((resolved or []) + list(tickers)))  # ensure entity is fetched
+
         prices_raw = self.fetch_prices(tickers)
         market = {"symbols": {}, "timeseries": {}}
         for sym, rows in prices_raw.items():
             df = pd.DataFrame(rows)
             if not df.empty:
                 market["symbols"][sym] = _latest_summary(df)
-                market["timeseries"][sym] = df.tail(5).to_dict(orient="records")
+                market["timeseries"][sym] = df.tail(60).to_dict(orient="records")
 
         headlines = self.fetch_rss(rss_queries)
 
@@ -118,7 +148,7 @@ class DataAgent:
                 "timing_ms": int((time.time() - t0) * 1000)
             }
         }
-
+        
         # Persist bundle (fixture for later agents)
         runs = Path("runs"); runs.mkdir(exist_ok=True)
         slug = re.sub(r"[^a-z0-9]+", "-", user_query.lower()).strip("-")[:60]
@@ -126,4 +156,8 @@ class DataAgent:
         with open(out_path, "w", encoding="utf-8") as f:
             json.dump(bundle, f, ensure_ascii=False, indent=2, default=str)
         bundle["diagnostics"]["persisted"] = str(out_path)
+        
+        # print(f"[DataAgent] Retrieved {len(evidence)} evidence chunks, {len(market['symbols'])} symbols, {len(headlines)} news items in {bundle['diagnostics']['timing_ms']} ms")
+        # print("[DataAgent] bundle: ", bundle)
+        # print("\n")
         return bundle

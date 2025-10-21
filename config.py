@@ -18,3 +18,15 @@ RSS_QUERIES = [
     "RBI repo rate", "NIFTY 50", "HDFC Bank", "ICICI Bank",
     "Reliance Industries", "Infosys", "India CPI inflation", "RBI MPC meeting",
 ]
+
+# Thesis LLM config (HF Inference API or your own Endpoint)
+THESIS_LLM_REPO_ID = "mistralai/Mistral-7B-Instruct-v0.2"   # small, free, works via API
+
+GEMINI_MODEL_ID = "gemini-2.5-flash"
+
+# Prompt generation knobs
+THESIS_MAX_NEW_TOKENS = 450
+THESIS_TEMPERATURE = 0.2
+THESIS_TOP_P = 0.9
+THESIS_K_EVIDENCE = 5
+THESIS_TOKENS_PER_PASSAGE = 220
