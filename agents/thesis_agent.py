@@ -12,7 +12,7 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from pydantic import BaseModel, Field
 
 from config import (
-    GEMINI_MODEL_ID, # <-- Use Gemini model ID
+    GEMINI_MODEL_ID, 
     THESIS_MAX_NEW_TOKENS,
     THESIS_TEMPERATURE,
     THESIS_TOP_P,
@@ -25,7 +25,7 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 load_dotenv()
 
-# --- Pydantic model for structured output (unchanged) ---
+# Pydantic model for structured output 
 class Citation(BaseModel):
     evidence_id: int = Field(description="The integer ID of the evidence passage being cited, e.g., 1.")
     reason: str = Field(description="A very short phrase explaining why this evidence is relevant.")
@@ -93,14 +93,12 @@ def _build_messages(user_query: str, primary_symbol: str | None, metrics: Dict[s
     user_text = f"USER QUESTION: {user_query}\nPRIMARY SYMBOL: {primary_symbol or 'unknown'}\n\nMETRICS (JSON for primary symbol):\n{metrics_json}\n\nEVIDENCE (top passages):\n{evid_block}\n\nBased on the data above, generate the investment thesis as a JSON object that strictly adheres to the schema."
     return [SystemMessage(content=sys_text), HumanMessage(content=user_text)]
 
-# --- NEW: Function to create the Gemini LLM ---
 def _make_llm(model_id: str = GEMINI_MODEL_ID):
-    # The API key is automatically read from the GOOGLE_API_KEY environment variable
     return ChatGoogleGenerativeAI(
         model=model_id,
         temperature=THESIS_TEMPERATURE,
         top_p=THESIS_TOP_P,
-        convert_system_message_to_human=True # Important for Gemini
+        convert_system_message_to_human=True 
     )
 
 def generate_thesis(bundle: Dict[str, Any], analysis: Dict[str, Any]) -> Dict[str, Any]:

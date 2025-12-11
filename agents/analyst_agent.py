@@ -3,7 +3,7 @@ from typing import Dict, Any, Optional
 import pandas as pd
 import numpy as np
 import yfinance as yf
-import pandas_ta as ta # Import pandas-ta
+import pandas_ta as ta 
 import time
 import logging
 
@@ -20,9 +20,9 @@ def _series_from_timeseries(rows: Optional[List[Dict]]) -> Optional[pd.DataFrame
         if df.empty or 'date' not in df.columns or 'close' not in df.columns:
             return None
         df["date"] = pd.to_datetime(df["date"]).dt.tz_localize(None)
-        df = df.sort_values("date").set_index('date') # Set date as index for ta
+        df = df.sort_values("date").set_index('date') 
         df['close'] = pd.to_numeric(df['close'], errors='coerce')
-        df = df.dropna(subset=['close']) # Ensure close prices are valid numbers
+        df = df.dropna(subset=['close'])
         if df.empty:
             return None
         return df
@@ -39,10 +39,10 @@ def analyze(bundle: Dict[str, Any]) -> Dict[str, Any]:
     t0 = time.time()
     log.info("--- Analyst Agent START ---")
     market = bundle.get("market", {})
-    ts = market.get("timeseries", {}) # Expects date-indexed DataFrame from DataAgent
+    ts = market.get("timeseries", {})
     results = {"symbols": {}}
 
-    primary_symbol = bundle.get("primary_symbol") # Get primary symbol identified by Data Agent
+    primary_symbol = bundle.get("primary_symbol") 
     symbols_to_analyze = list(ts.keys())
     log.info(f"Analyzing symbols: {symbols_to_analyze}, Primary: {primary_symbol}")
 
@@ -55,7 +55,7 @@ def analyze(bundle: Dict[str, Any]) -> Dict[str, Any]:
 
     # Analyze each symbol
     for sym in symbols_to_analyze:
-        if sym == BENCHMARK_INDEX: # Skip benchmark for detailed analysis here
+        if sym == BENCHMARK_INDEX: 
              continue
 
         rows = ts.get(sym, [])
@@ -83,10 +83,8 @@ def analyze(bundle: Dict[str, Any]) -> Dict[str, Any]:
         drawdown = (df["close"] / cummax - 1.0)
         metrics["max_drawdown"] = float(drawdown.min()) if not drawdown.empty else None
 
-        # --- Fetch More Fundamentals (with error handling) ---
+        # Fetch More Fundamentals
         try:
-            # Use yf.Ticker for info dictionary - potentially richer than download
-            # Consider adding caching here if making many calls
             ticker_info = yf.Ticker(sym).info
             metrics["pe"] = ticker_info.get("trailingPE")
             metrics["pb"] = ticker_info.get("priceToBook")
@@ -98,20 +96,17 @@ def analyze(bundle: Dict[str, Any]) -> Dict[str, Any]:
             metrics["fiftyTwoWeekHigh"] = ticker_info.get("fiftyTwoWeekHigh")
             metrics["fiftyTwoWeekLow"] = ticker_info.get("fiftyTwoWeekLow")
             log.debug(f"Fetched fundamentals for {sym}")
-            time.sleep(0.1) # Be respectful
+            time.sleep(0.1)
         except Exception as e:
             log.warning(f"Could not fetch yfinance Ticker info for {sym}: {e}")
-            # Initialize keys even if fetch fails
             metrics.update({
                 "pe": None, "pb": None, "marketCap": None, "dividendYield": None,
                 "debtToEquity": None, "returnOnEquity": None, "forwardPE": None,
                 "fiftyTwoWeekHigh": None, "fiftyTwoWeekLow": None
             })
-        # -----------------------------------------------
 
-        # --- Calculate Technical Indicators using pandas-ta ---
+        # Calculate Technical Indicators
         try:
-            # Ensure enough data points for calculations
             if len(df) >= 50:
                  df.ta.sma(length=50, append=True)
                  metrics["sma_50d"] = df['SMA_50'].iloc[-1]
@@ -124,7 +119,7 @@ def analyze(bundle: Dict[str, Any]) -> Dict[str, Any]:
             else:
                  metrics["sma_200d"] = None
 
-            if len(df) >= 15: # RSI needs n+1 periods typically
+            if len(df) >= 15:
                  df.ta.rsi(length=14, append=True)
                  metrics["rsi_14d"] = df['RSI_14'].iloc[-1]
             else:
@@ -135,20 +130,17 @@ def analyze(bundle: Dict[str, Any]) -> Dict[str, Any]:
         except Exception as e:
             log.warning(f"Could not calculate technical indicators for {sym}: {e}")
             metrics.update({"sma_50d": None, "sma_200d": None, "rsi_14d": None})
-        # ----------------------------------------------------
 
-        # --- Beta and Correlation vs Benchmark ---
+        # Beta and Correlation vs Benchmark
         if benchmark_df is not None and not benchmark_df.empty:
-            # Align data on common dates
             merged = pd.merge(
                 df[["close"]].rename(columns={"close":"c_s"}),
                 benchmark_df[["close"]].rename(columns={"close":"c_m"}),
                 left_index=True, right_index=True, how="inner"
             )
-            if len(merged) >= 21: # Need enough points for reliable beta/corr (e.g., 20 returns)
+            if len(merged) >= 21:
                 sr = merged["c_s"].pct_change().dropna()
                 mr = merged["c_m"].pct_change().dropna()
-                # Ensure equal length after dropping NaNs
                 common_index = sr.index.intersection(mr.index)
                 sr, mr = sr.loc[common_index], mr.loc[common_index]
 
@@ -157,8 +149,8 @@ def analyze(bundle: Dict[str, Any]) -> Dict[str, Any]:
                         cov_matrix = np.cov(sr, mr)
                         cov = cov_matrix[0, 1]
                         varm = np.var(mr)
-                        beta = float(cov / varm) if varm > 1e-10 else None # Avoid division by zero
-                        corr = float(sr.corr(mr)) # Pandas corr handles NaNs potentially better
+                        beta = float(cov / varm) if varm > 1e-10 else None 
+                        corr = float(sr.corr(mr)) 
                         metrics["beta_vs_benchmark"] = beta
                         metrics["corr_vs_benchmark"] = corr
                         log.debug(f"Calculated Beta/Corr for {sym}")
@@ -175,10 +167,6 @@ def analyze(bundle: Dict[str, Any]) -> Dict[str, Any]:
         else:
             metrics["beta_vs_benchmark"] = None
             metrics["corr_vs_benchmark"] = None
-        # -----------------------------------------
-
-        # Clean up NaN values for JSON serialization if needed, or keep None
-        # metrics = {k: (None if pd.isna(v) else v) for k, v in metrics.items()}
 
         results["symbols"][sym] = metrics
 
@@ -186,9 +174,9 @@ def analyze(bundle: Dict[str, Any]) -> Dict[str, Any]:
     log.info(f"--- Analyst Agent END --- (Total time: {timing_ms} ms)")
     return {
         "query": bundle.get("query", {}),
-        "primary_symbol": primary_symbol, # Pass primary symbol along
+        "primary_symbol": primary_symbol, 
         "analysis": results,
-        "used_symbols": list(results["symbols"].keys()), # Symbols actually analyzed
+        "used_symbols": list(results["symbols"].keys()), 
         "benchmark_analyzed": BENCHMARK_INDEX if benchmark_df is not None else None,
         "diagnostics": {"timing_ms": timing_ms}
     }

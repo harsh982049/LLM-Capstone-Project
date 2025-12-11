@@ -1,10 +1,9 @@
-# A sample list of NIFTY 100 stocks (Name, Ticker)
-# You can expand this list significantly for better coverage
+# A list of NIFTY 100 stocks (Name and Ticker)
 NIFTY_100_STOCKS = [
     ("Adani Enterprises Ltd.", "ADANIENT.NS"),
     ("Adani Green Energy Ltd.", "ADANIGREEN.NS"),
     ("Adani Ports and Special Economic Zone Ltd.", "ADANIPORTS.NS"),
-    ("Adani Total Gas Ltd.", "ATGL.NS"), # Example, check actual inclusion
+    ("Adani Total Gas Ltd.", "ATGL.NS"),
     ("Apollo Hospitals Enterprise Ltd.", "APOLLOHOSP.NS"),
     ("Asian Paints Ltd.", "ASIANPAINT.NS"),
     ("Axis Bank Ltd.", "AXISBANK.NS"),
@@ -50,14 +49,12 @@ NIFTY_100_STOCKS = [
     ("Titan Company Ltd.", "TITAN.NS"),
     ("UltraTech Cement Ltd.", "ULTRACEMCO.NS"),
     ("Wipro Ltd.", "WIPRO.NS"),
-    # Add more stocks...
 ]
 
-# Create mappings for easier lookup
+# Mappings for easier lookup
 NAME_TO_TICKER = {name.lower(): ticker for name, ticker in NIFTY_100_STOCKS}
 TICKER_TO_NAME = {ticker: name for name, ticker in NIFTY_100_STOCKS}
 STOCK_NAMES = [name.lower() for name, ticker in NIFTY_100_STOCKS]
-
 
 # Benchmark Index
 BENCHMARK_INDEX = "^NSEI" # NIFTY 50

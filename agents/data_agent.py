@@ -6,15 +6,15 @@ import yfinance as yf
 import feedparser
 from transformers import AutoTokenizer
 from pathlib import Path
-from fuzzywuzzy import process # For fuzzy matching
+from fuzzywuzzy import process
 
 from config import VECTOR_FAISS_DIR, EMBEDDING_MODEL, TOP_K, TIMEZONE
 from agents.index_loader import RetrieverIndex
-from nifty_stocks import NAME_TO_TICKER, STOCK_NAMES, BENCHMARK_INDEX, TICKER_TO_NAME # Import stock list
+from nifty_stocks import NAME_TO_TICKER, STOCK_NAMES, BENCHMARK_INDEX, TICKER_TO_NAME
 
 log = logging.getLogger(__name__)
 
-# --- Dynamic Ticker Resolution ---
+# Dynamic Ticker Resolution
 def _resolve_query_symbols_fuzzy(q: str, entities: List[str] = [], threshold=80) -> List[str]:
     """
     Identifies potential NSE ticker symbols from a query using fuzzy matching
@@ -23,25 +23,20 @@ def _resolve_query_symbols_fuzzy(q: str, entities: List[str] = [], threshold=80)
     """
     hits = set()
     
-    # Prioritize entities extracted by the router if available
     if entities:
         for entity in entities:
             entity_lower = entity.lower().replace(" ltd", "").replace(" limited", "").strip()
-            # Direct ticker match first
             if entity.upper().endswith(".NS"):
                  hits.add(entity.upper())
                  continue
-            # Check predefined mapping
             if entity_lower in NAME_TO_TICKER:
                 hits.add(NAME_TO_TICKER[entity_lower])
                 continue
-            # Fuzzy match against known names
             match, score = process.extractOne(entity_lower, STOCK_NAMES)
             if score >= threshold and match in NAME_TO_TICKER:
                 hits.add(NAME_TO_TICKER[match])
                 log.info(f"Fuzzy matched entity '{entity}' to '{match}' (Score: {score}) -> {NAME_TO_TICKER[match]}")
 
-    # Fallback: Search the entire query if no entities found or yielded results
     if not hits:
         query_lower = q.lower()
         # Look for explicit tickers first
@@ -49,23 +44,18 @@ def _resolve_query_symbols_fuzzy(q: str, entities: List[str] = [], threshold=80)
         for tkr in explicit_tickers:
              hits.add(f"{tkr}.NS")
         
-        # Then fuzzy match parts of the query against known names
-        # (This is less precise, use cautiously or with higher threshold)
-        # Potential optimization: only fuzzy match capitalized words or proper nouns
         words = re.findall(r'\b[A-Z][a-zA-Z-]+\b', q) # Simple heuristic for potential company names
         for word in words:
              word_lower = word.lower()
-             if len(word_lower) > 3: # Avoid matching very short words
+             if len(word_lower) > 3: 
                  match, score = process.extractOne(word_lower, STOCK_NAMES)
-                 if score >= (threshold + 5) and match in NAME_TO_TICKER: # Higher threshold for broad query matching
+                 if score >= (threshold + 5) and match in NAME_TO_TICKER: 
                      hits.add(NAME_TO_TICKER[match])
                      log.info(f"Fuzzy matched query word '{word}' to '{match}' (Score: {score}) -> {NAME_TO_TICKER[match]}")
 
     resolved = list(hits)
     log.info(f"Resolved tickers for query '{q}': {resolved}")
     return resolved
-# -----------------------------
-
 
 tok_cache = None
 def _tok():
@@ -81,7 +71,7 @@ def _trim_text(txt: str, max_tokens: int) -> str:
         return txt if len(ids) <= max_tokens else _tok().decode(ids[:max_tokens], skip_special_tokens=True)
     except Exception as e:
         log.warning(f"Token trimming failed: {e}. Falling back to character slice.")
-        return txt[: max(1000, max_tokens * 4)] # Estimate character length
+        return txt[: max(1000, max_tokens * 4)] 
 
 def _latest_summary(df: pd.DataFrame) -> dict:
     if df.empty: return {}
@@ -102,7 +92,6 @@ def _dedup_evidence(rows, per_domain_cap=2):
         url = (e.get("url") or "").split("?")[0].rstrip("/").lower() # Normalize URL
         dom = (e.get("domain") or "").lower()
         if not url or url in seen_urls: continue
-        # Simple domain capping
         current_domain_count = per_domain.get(dom, 0)
         if current_domain_count >= per_domain_cap: continue
 
@@ -132,45 +121,38 @@ class DataAgent:
         out: Dict[str, List[Dict[str, Any]]] = {}
         if not symbols: return out
         log.info(f"Fetching prices for symbols: {symbols}")
-        # Add benchmark index if not present
         all_syms = list(set(symbols + [BENCHMARK_INDEX]))
         try:
-            # Fetch all tickers in one go using yfinance download
             data = yf.download(all_syms, period=period, interval=interval, auto_adjust=False, progress=False)
             if data.empty:
                 log.warning("yf.download returned empty DataFrame.")
                 return out
 
-            # Process each symbol
-            for s in symbols: # Only process requested symbols, not necessarily the benchmark
+            for s in symbols: 
                 if s not in data['Close'] or data['Close'][s].isnull().all():
                      log.warning(f"No valid price data found for symbol: {s}")
                      continue
 
-                # Select columns for the specific symbol, handling MultiIndex
                 df_sym = data.loc[:, pd.IndexSlice[:, s]].copy()
-                df_sym.columns = df_sym.columns.droplevel(1) # Drop the ticker level
+                df_sym.columns = df_sym.columns.droplevel(1)
 
                 if df_sym.empty: continue
                 df_sym = df_sym.rename_axis("date").reset_index()
-                df_sym["date"] = pd.to_datetime(df_sym["date"]).dt.tz_localize(None) # Remove timezone
+                df_sym["date"] = pd.to_datetime(df_sym["date"]).dt.tz_localize(None)
                 df_sym = df_sym.rename(columns={"Open":"open","High":"high","Low":"low","Close":"close","Adj Close":"adj_close","Volume":"volume"})
                 if "adj_close" not in df_sym.columns and "close" in df_sym.columns:
                     df_sym["adj_close"] = df_sym["close"] # Fallback if adj_close missing
 
-                # Ensure required columns exist and handle potential NaNs
                 required_cols = ["date","open","high","low","close","adj_close","volume"]
                 df_sym = df_sym.dropna(subset=['close']) # Drop rows where close price is NaN
                 if df_sym.empty: continue
 
-                # Fill missing required columns with NaN or 0 if appropriate
                 for col in required_cols:
                      if col not in df_sym:
                          df_sym[col] = 0 if col == 'volume' else np.nan
 
                 out[s] = df_sym[required_cols].to_dict(orient="records")
 
-            # Also store benchmark data if fetched successfully
             if BENCHMARK_INDEX in data['Close'] and not data['Close'][BENCHMARK_INDEX].isnull().all():
                  df_bench = data.loc[:, pd.IndexSlice[:, BENCHMARK_INDEX]].copy()
                  df_bench.columns = df_bench.columns.droplevel(1)
@@ -189,7 +171,6 @@ class DataAgent:
 
         except Exception as e:
             log.error(f"Error fetching prices with yf.download: {e}", exc_info=True)
-            # Fallback to individual ticker fetching if download fails
             for s in symbols:
                 try:
                     ticker = yf.Ticker(s)
@@ -236,12 +217,12 @@ class DataAgent:
                         "title": title,
                         "link": link,
                         "published": (e.get("published") or e.get("updated") or "").strip(),
-                        "source_feed": q # Store the query term instead of the long URL
+                        "source_feed": q 
                         #"query": q
                     })
                     count += 1
                 log.info(f"Fetched {count} unique items for RSS query: '{q}'")
-                time.sleep(sleep_s) # Be respectful to Google News
+                time.sleep(sleep_s) 
             except Exception as e:
                 log.warning(f"Failed to fetch or parse RSS feed for query '{q}': {e}")
         log.info(f"Finished fetching RSS. Total unique items: {len(items)}")
@@ -257,13 +238,13 @@ class DataAgent:
 
         # 1. Retrieve Evidence
         log.info(f"Retrieving top {k} evidence chunks for query: '{user_query}'")
-        ev_raw = self.retrieve(user_query, k + 5) # Retrieve slightly more initially
+        ev_raw = self.retrieve(user_query, k + 5) 
         log.info(f"Retrieved {len(ev_raw)} raw evidence chunks.")
-        ev_dedup = _dedup_evidence(ev_raw)[:k] # Deduplicate and cap to K
+        ev_dedup = _dedup_evidence(ev_raw)[:k] 
         log.info(f"Deduplicated evidence chunks: {len(ev_dedup)}")
 
         evidence = [{
-            "id": int(e.get("id", i)), # Use index as fallback ID
+            "id": int(e.get("id", i)), 
             "external_id": f"{e.get('url','')}|{e.get('chunk',0)}",
             "url": e.get("url",""),
             "title": e.get("title",""),
@@ -276,7 +257,6 @@ class DataAgent:
 
         # 2. Resolve Tickers
         resolved_tickers = _resolve_query_symbols_fuzzy(user_query, entities)
-        # Combine resolved tickers with default tickers, ensuring uniqueness and adding benchmark
         tickers_to_fetch = list(dict.fromkeys(resolved_tickers + default_tickers + [BENCHMARK_INDEX]))
 
         # 3. Fetch Prices
@@ -287,27 +267,25 @@ class DataAgent:
             df = pd.DataFrame(rows)
             if not df.empty:
                 summary = _latest_summary(df)
-                if summary: # Ensure summary calculation was successful
+                if summary:
                     market["symbols"][sym] = summary
-                    market["timeseries"][sym] = df.tail(60).to_dict(orient="records") # Keep timeseries for analysis
+                    market["timeseries"][sym] = df.tail(60).to_dict(orient="records")
                     successful_fetches.add(sym)
 
-        # Ensure benchmark timeseries is present if successfully fetched
         if BENCHMARK_INDEX in prices_raw and BENCHMARK_INDEX not in market["timeseries"]:
              df_bench = pd.DataFrame(prices_raw[BENCHMARK_INDEX])
              if not df_bench.empty:
                  market["timeseries"][BENCHMARK_INDEX] = df_bench.tail(60).to_dict(orient="records")
 
 
-        # Determine primary symbol based ONLY on successfully fetched market data
         primary_symbol_candidates = [t for t in resolved_tickers if t in successful_fetches]
         primary_symbol = primary_symbol_candidates[0] if primary_symbol_candidates else None
         log.info(f"Primary symbol determined: {primary_symbol}")
 
 
-        # 4. Fetch News Headlines (use resolved names/tickers for relevance)
+        # 4. Fetch News Headlines
         dynamic_rss_queries = list(dict.fromkeys(
-             rss_queries + [TICKER_TO_NAME.get(t, t) for t in resolved_tickers] # Add names for resolved tickers
+             rss_queries + [TICKER_TO_NAME.get(t, t) for t in resolved_tickers] 
         ))
         headlines = self.fetch_rss(dynamic_rss_queries)
 
@@ -315,7 +293,7 @@ class DataAgent:
         timing_ms = int((time.time() - t0) * 1000)
         bundle = {
             "query": {"text": user_query, "timestamp": pd.Timestamp.now(tz=TIMEZONE).isoformat()},
-            "primary_symbol": primary_symbol, # Add the identified primary symbol
+            "primary_symbol": primary_symbol, 
             "evidence": evidence,
             "market": market,
             "news": {"rss": headlines, "source": "GoogleNewsRSS"},
@@ -328,7 +306,7 @@ class DataAgent:
             }
         }
 
-        # 6. Persist Bundle (Optional but useful for debugging)
+        # 6. Persist Bundle 
         try:
             runs = Path("runs"); runs.mkdir(exist_ok=True)
             slug = re.sub(r"[^a-z0-9]+", "-", user_query.lower()).strip("-")[:60] or "query"

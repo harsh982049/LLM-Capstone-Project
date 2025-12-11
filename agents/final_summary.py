@@ -6,7 +6,6 @@ import time
 
 from pydantic import BaseModel, Field
 from langchain_core.messages import SystemMessage, HumanMessage
-# Ensure _make_llm is correctly imported and configured for Gemini
 try:
     from agents.thesis_agent import _make_llm
 except ImportError:
@@ -15,8 +14,7 @@ except ImportError:
 
 log = logging.getLogger(__name__)
 
-# --- Pydantic Models for Different Response Types ---
-
+# Pydantic Models for Different Response Types
 class StandardSummaryResponse(BaseModel):
     """Conversational response for standard stock analysis."""
     headline: str = Field(description="A clear, one-sentence headline summarizing the stock's outlook based on the analysis.")
@@ -50,7 +48,7 @@ class ErrorSummaryResponse(BaseModel):
      disclaimer: str = Field(description="Disclaimer stating this is an error message.")
 
 
-# --- Main Function ---
+# Main Function
 def generate_final_summary(report: Dict[str, Any]) -> BaseModel: # Return type is now BaseModel
     """
     Takes the entire analysis report and generates a final, human-readable summary,
@@ -60,18 +58,16 @@ def generate_final_summary(report: Dict[str, Any]) -> BaseModel: # Return type i
     t0 = time.time()
     log.info("--- Final Summary Agent START ---")
 
-    # Determine analysis type and check for errors first
     analysis_type = report.get("analysis_type", "stock_analysis") # Default if missing
     user_query = report.get("query", {}).get("text", "N/A")
     error = report.get("error")
     diagnostics = report.get("diagnostics", {})
 
-    # Handle explicit errors reported by the pipeline
     if error:
          log.warning(f"Pipeline reported an error: {error}. Generating error summary.")
          timing_ms = int((time.time() - t0) * 1000)
          diagnostics["final_summary_timing_ms"] = timing_ms
-         report["diagnostics"] = diagnostics # Update report diagnostics
+         report["diagnostics"] = diagnostics 
          return ErrorSummaryResponse(
              headline="Analysis Incomplete",
              summary=f"The analysis could not be completed due to an error: {error}",
@@ -79,18 +75,14 @@ def generate_final_summary(report: Dict[str, Any]) -> BaseModel: # Return type i
              disclaimer="This is an error message."
          )
 
-    # Prepare context for the LLM
-    # Reduce noise for the summary LLM - maybe exclude full evidence text?
     summary_context_report = report.copy()
     if 'evidence_topk' in summary_context_report:
-        # Keep only essential evidence info for summary context
         summary_context_report['evidence_summary'] = [
              f"[{i+1}] {e.get('title','')} ({e.get('domain','')}, {e.get('published','')[:10]}) - Score: {e.get('score'):.2f}"
              for i, e in enumerate(summary_context_report.pop('evidence_topk', []))
         ]
     report_str = json.dumps(summary_context_report, indent=2, default=str)
 
-    # Select the appropriate Pydantic model and prompt based on analysis type
     if analysis_type == "portfolio_suggestion":
         TargetModel = PortfolioSummaryResponse
         sys_prompt_core = """
@@ -110,7 +102,7 @@ def generate_final_summary(report: Dict[str, Any]) -> BaseModel: # Return type i
         Respond strictly with the 'SimulationSummaryResponse' JSON schema.
         **CRITICAL: Reiterate this is NOT a prediction or financial advice.**
         """
-    else: # Default to standard stock analysis (stock_analysis, stock_comparison, general_qa fallback)
+    else: 
         TargetModel = StandardSummaryResponse
         sys_prompt_core = """
         Your role is to synthesize a JSON report from multiple AI agents (data, analysis, thesis, verification) about a stock into a conversational summary.
@@ -150,15 +142,14 @@ def generate_final_summary(report: Dict[str, Any]) -> BaseModel: # Return type i
         log.info("Final summary LLM call successful.")
         timing_ms = int((time.time() - t0) * 1000)
         diagnostics["final_summary_timing_ms"] = timing_ms
-        report["diagnostics"] = diagnostics # Update report diagnostics
+        report["diagnostics"] = diagnostics 
         return final_summary_obj
 
     except Exception as e:
         log.error(f"Final summary generation failed: {e}", exc_info=True)
         timing_ms = int((time.time() - t0) * 1000)
         diagnostics["final_summary_timing_ms"] = timing_ms
-        report["diagnostics"] = diagnostics # Update report diagnostics
-        # Fallback to a generic error response structure
+        report["diagnostics"] = diagnostics
         return ErrorSummaryResponse(
             headline="Summary Generation Failed",
             summary=f"An error occurred during the final synthesis step: {e}. Please refer to the detailed JSON output below.",

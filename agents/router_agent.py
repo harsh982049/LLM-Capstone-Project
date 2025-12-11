@@ -5,7 +5,7 @@ import time
 
 from pydantic import BaseModel, Field
 from langchain_core.messages import SystemMessage, HumanMessage
-from agents.thesis_agent import _make_llm # Reuse the same Gemini LLM
+from agents.thesis_agent import _make_llm 
 
 log = logging.getLogger(__name__)
 
@@ -67,22 +67,19 @@ def classify_intent(state: Dict[str, Any]) -> Dict[str, Any]:
             HumanMessage(content=human_prompt)
         ]
 
-        # Add timeout and retries maybe
         classification_result = structured_llm.invoke(messages, config={"max_retries": 1})
 
         log.info(f"Intent classified as: {classification_result.intent} (Confidence: {classification_result.confidence:.2f}) with entities: {classification_result.entities}. Reasoning: {classification_result.reasoning}")
 
-        # Add classification to the state
         timing_ms = int((time.time() - t0) * 1000)
         return {
             **state,
             "intent": classification_result.intent,
-            "entities": classification_result.entities, # Pass entities for Data Agent
+            "entities": classification_result.entities, 
             "diagnostics": {"router_timing_ms": timing_ms}
         }
 
     except Exception as e:
         log.error(f"Intent classification failed: {e}. Defaulting to 'general_qa'.", exc_info=True)
-        # Fallback to a default intent in case of error
         timing_ms = int((time.time() - t0) * 1000)
         return {**state, "intent": "general_qa", "entities": [], "diagnostics": {"router_timing_ms": timing_ms}}

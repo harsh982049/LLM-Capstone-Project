@@ -44,12 +44,12 @@ def verify(analysis: Dict[str, Any], thesis: Dict[str, Any]) -> Dict[str, Any]:
     bear_thesis = thesis.get("thesis_bear", "")
     metrics = analysis.get("analysis", {})
     
-    # --- Step 1: Rule-based numerical check ---
+    # Step 1: Rule-based numerical check
     numerical_issues = []
     numerical_issues.extend(_check_numerical_claims(bull_thesis, metrics))
     numerical_issues.extend(_check_numerical_claims(bear_thesis, metrics))
 
-    # --- Step 2: LLM-based consistency check ---
+    # Step 2: LLM-based consistency check
     sys_prompt = """
     You are a meticulous financial compliance officer. Your task is to verify if an investment thesis is consistent
     with the provided numerical data. Do not check for factual correctness with the real world, only check for
@@ -96,7 +96,7 @@ def verify(analysis: Dict[str, Any], thesis: Dict[str, Any]) -> Dict[str, Any]:
         except Exception as e:
             llm_findings.append(f"Error during LLM verification for {name} Thesis: {str(e)}")
             
-    # --- Step 3: Compile the final report ---
+    # Step 3: Compile the final report 
     final_issues = numerical_issues + llm_findings
     
     return {

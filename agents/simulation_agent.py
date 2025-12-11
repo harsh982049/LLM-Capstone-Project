@@ -7,16 +7,14 @@ import json
 from pydantic import BaseModel, Field
 from langchain_core.messages import SystemMessage, HumanMessage
 
-# Reuse Gemini LLM setup and config
 from agents.thesis_agent import _make_llm
 from config import GEMINI_MODEL_ID
-# Need DataAgent to retrieve relevant context
 from agents.data_agent import DataAgent, _trim_text
-from config import THESIS_TOKENS_PER_PASSAGE # Reuse token limit
+from config import THESIS_TOKENS_PER_PASSAGE 
 
 log = logging.getLogger(__name__)
 
-# --- Pydantic Models for LLM Interaction ---
+# Pydantic Models for LLM Interaction
 
 class ScenarioDetails(BaseModel):
     """Details extracted from the user's hypothetical scenario query."""
@@ -32,8 +30,7 @@ class SimulationAnalysisOutput(BaseModel):
     key_assumptions_uncertainties: List[str] = Field(description="Bullet points highlighting assumptions made or key uncertainties affecting the outcome.")
     disclaimer: str = Field(description="Mandatory disclaimer stating this is a qualitative analysis based on available information and assumptions, not a prediction or financial advice.")
 
-# --- Agent Logic ---
-
+# Agent Logic
 def _extract_scenario_details(query: str) -> ScenarioDetails:
     """Uses LLM to extract key details from the user's scenario query."""
     log.info("Extracting scenario details...")
@@ -82,15 +79,12 @@ def run_simulation(state: Dict[str, Any]) -> Dict[str, Any]:
             }
         }
 
-    # 2. Retrieve Relevant Context (News, Analysis about similar past events or opinions)
+    # 2. Retrieve Relevant Context 
     log.info(f"Retrieving context for scenario: {scenario_details.scenario_description}")
     context_query = f"Impact of {scenario_details.scenario_description} on {scenario_details.target_impact_area or 'Indian economy'} analysis opinions"
     try:
-        # Use the DataAgent instance potentially passed in state or instantiate
-        data_agent_instance = DataAgent() # Assuming instantiation is feasible
-        # Retrieve more evidence for context
+        data_agent_instance = DataAgent() 
         evidence_raw = data_agent_instance.retrieve(context_query, k=10) # Get top 10 relevant articles/chunks
-        # Trim evidence for the prompt
         evidence_context = [
              f"[{i+1}] {e.get('title','')} ({e.get('domain','')}, {e.get('published','')[:10]}):\n{_trim_text(e.get('text',''), THESIS_TOKENS_PER_PASSAGE)}"
              for i, e in enumerate(evidence_raw)
@@ -139,18 +133,17 @@ def run_simulation(state: Dict[str, Any]) -> Dict[str, Any]:
 
         timing_ms = int((time.time() - t0) * 1000)
         diagnostics["simulation_agent_timing_ms"] = timing_ms
-        # Structure the final report
         return {
             "report": {
                 "query": {"text": user_query},
                 "analysis_type": "hypothetical_scenario",
                 "headline": analysis_output.headline,
                 "summary": analysis_output.scenario_summary,
-                "details": { # Nest the details
+                "details": {
                     "potential_impacts": analysis_output.potential_impacts,
                     "key_assumptions_uncertainties": analysis_output.key_assumptions_uncertainties,
                 },
-                "disclaimer": analysis_output.disclaimer, # Use the disclaimer from the LLM
+                "disclaimer": analysis_output.disclaimer, 
                 "diagnostics": diagnostics
             }
         }
